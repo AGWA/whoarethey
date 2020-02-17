@@ -5,10 +5,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	"io"
 	"io/ioutil"
-	"log"
+	"net/http"
 	"os"
 	"strings"
-	"net/http"
 )
 
 type DummySigner struct {
@@ -24,9 +23,9 @@ func (signer *DummySigner) PublicKey() ssh.PublicKey {
 }
 func (signer *DummySigner) Sign(rand io.Reader, data []byte) (*ssh.Signature, error) {
 	signer.Accepted = true
-	if signer.Comment != "" {
-		log.Printf("Server accepted '%s'.", signer.Comment)
-	}
+	//if signer.Comment != "" {
+	//	log.Printf("Server accepted '%s'.", signer.Comment)
+	//}
 	return &ssh.Signature{
 		Format: signer.PubKey.Type(),
 	}, nil
@@ -54,12 +53,12 @@ func MakeAuthMethod(dummySigners []*DummySigner) ssh.AuthMethod {
 	return ssh.PublicKeysCallback(func() ([]ssh.Signer, error) { return signers, nil })
 }
 
-func LoadSignersFromFile(keysFileName string) ([]*DummySigner, error) {
-	keysFileBytes, err := ioutil.ReadFile(keysFileName)
+func LoadSignersFromFile(filename string) ([]*DummySigner, error) {
+	fileBytes, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	signers, err := ParseAuthorizedKeys(keysFileBytes)
+	signers, err := ParseAuthorizedKeys(fileBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -93,15 +92,10 @@ func LoadSigners(source string) ([]*DummySigner, error) {
 	}
 }
 
-func main() {
-	if len(os.Args) != 4 {
-		log.Fatal("Usage: whoarethey SERVER USERNAME KEYSFILE|github:USERNAME")
-	}
-	server, username, keysSource := os.Args[1], os.Args[2], os.Args[3]
-
+func TryKeys(server string, username string, keysSource string) (bool, error) {
 	signers, err := LoadSigners(keysSource)
 	if err != nil {
-		log.Fatal("Failed to load public keys: ", err)
+		return false, fmt.Errorf("Failed to load public keys: %s", err)
 	}
 
 	config := &ssh.ClientConfig{
@@ -122,12 +116,58 @@ func main() {
 		}
 	}
 	if numAccepted > 0 {
-		fmt.Printf("Server accepted %d of %d keys.\n", numAccepted, numTried)
-		os.Exit(0)
-	} else if numTried < len(signers) {
-		log.Fatal("Error dialing server: ", err)
+		return true, nil
+	} else if numTried == len(signers) {
+		return false, nil
 	} else {
-		fmt.Printf("Server accepted no keys.\n")
-		os.Exit(10)
+		return false, fmt.Errorf("Error dialing server: %s", err)
+	}
+}
+
+type result struct {
+	keySource string
+	accepted  bool
+	err       error
+}
+
+func main() {
+	if len(os.Args) < 4 {
+		fmt.Fprintln(os.Stderr, "Usage: whoarethey SERVER USERNAME KEYSFILE|github:USERNAME...")
+		os.Exit(2)
+	}
+	server, username, keySources := os.Args[1], os.Args[2], os.Args[3:]
+
+	results := make(chan result)
+	for _, keySource := range keySources {
+		go func(keySource string) {
+			accepted, err := TryKeys(server, username, keySource)
+			results <- result{
+				keySource: keySource,
+				accepted:  accepted,
+				err:       err,
+			}
+		}(keySource)
+	}
+
+	anyAccepted := false
+	anyErrors := false
+	for range keySources {
+		result := <-results
+		if result.accepted {
+			fmt.Fprintln(os.Stdout, result.keySource)
+			anyAccepted = true
+		} else if result.err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %s\n", result.keySource, result.err)
+			anyErrors = true
+		}
+	}
+
+	if anyAccepted {
+		os.Exit(0)
+	} else if anyErrors {
+		os.Exit(4)
+	} else {
+		fmt.Fprintln(os.Stderr, "Server accepted none of the provided keys.")
+		os.Exit(1)
 	}
 }
