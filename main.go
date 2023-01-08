@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"golang.org/x/crypto/ssh"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
@@ -54,7 +53,7 @@ func MakeAuthMethod(dummySigners []*DummySigner) ssh.AuthMethod {
 }
 
 func LoadSignersFromFile(filename string) ([]*DummySigner, error) {
-	fileBytes, err := ioutil.ReadFile(filename)
+	fileBytes, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +73,7 @@ func LoadSignersFromGitHub(username string) ([]*DummySigner, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("Error retrieving %s: %s", url, resp.Status)
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +94,7 @@ func LoadSigners(source string) ([]*DummySigner, error) {
 func TryKeys(server string, username string, keysSource string) (bool, error) {
 	signers, err := LoadSigners(keysSource)
 	if err != nil {
-		return false, fmt.Errorf("Failed to load public keys: %s", err)
+		return false, fmt.Errorf("Failed to load public keys: %w", err)
 	}
 
 	config := &ssh.ClientConfig{
@@ -120,14 +119,8 @@ func TryKeys(server string, username string, keysSource string) (bool, error) {
 	} else if numTried == len(signers) {
 		return false, nil
 	} else {
-		return false, fmt.Errorf("Error dialing server: %s", err)
+		return false, fmt.Errorf("Error dialing server: %w", err)
 	}
-}
-
-type result struct {
-	keySource string
-	accepted  bool
-	err       error
 }
 
 func main() {
@@ -137,6 +130,11 @@ func main() {
 	}
 	server, username, keySources := os.Args[1], os.Args[2], os.Args[3:]
 
+	type result struct {
+		keySource string
+		accepted  bool
+		err       error
+	}
 	results := make(chan result)
 	for _, keySource := range keySources {
 		go func(keySource string) {
