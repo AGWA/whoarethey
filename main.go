@@ -128,7 +128,10 @@ func TryKeys(server string, username string, keysSource string) (bool, error) {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	_, err = ssh.Dial("tcp", server, config)
+	client, dialErr := ssh.Dial("tcp", server, config)
+	if dialErr == nil {
+		client.Close()
+	}
 	numTried := 0
 	numAccepted := 0
 	for _, signer := range signers {
@@ -144,7 +147,7 @@ func TryKeys(server string, username string, keysSource string) (bool, error) {
 	} else if numTried == len(signers) {
 		return false, nil
 	} else {
-		return false, fmt.Errorf("Error dialing server: %w", err)
+		return false, fmt.Errorf("Error dialing server: %w", dialErr)
 	}
 }
 
