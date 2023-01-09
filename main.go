@@ -150,7 +150,7 @@ func TryKeys(server string, username string, keysSource string) (bool, error) {
 
 func main() {
 	if len(os.Args) < 4 {
-		fmt.Fprintln(os.Stderr, "Usage: whoarethey SERVER USERNAME KEYSFILE|github:USERNAME...")
+		fmt.Fprintln(os.Stderr, "Usage: whoarethey HOST:PORT USERNAME KEYSFILE|github:USERNAME...")
 		os.Exit(2)
 	}
 	server, username, keySources := os.Args[1], os.Args[2], os.Args[3:]
